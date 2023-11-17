@@ -27,7 +27,7 @@ var (
 	key = []byte("NotASecureKey123")
 )
 
-type GoogleOp struct {
+type Google struct {
 	ClientID     string
 	ClientSecret string
 	Issuer       string
@@ -38,9 +38,9 @@ type GoogleOp struct {
 	server       *http.Server
 }
 
-var _ client.OpenIdProvider = (*GoogleOp)(nil)
+var _ client.OpenIdProvider = (*Google)(nil)
 
-func (g *GoogleOp) RequestTokens(ctx context.Context, cicHash string) (*memguard.LockedBuffer, error) {
+func (g *Google) RequestTokens(ctx context.Context, cicHash string) (*memguard.LockedBuffer, error) {
 	cookieHandler :=
 		httphelper.NewCookieHandler(key, key, httphelper.WithUnsecure())
 	options := []rp.Option{
@@ -107,7 +107,7 @@ func (g *GoogleOp) RequestTokens(ctx context.Context, cicHash string) (*memguard
 	}
 }
 
-func (g *GoogleOp) VerifyCICHash(ctx context.Context, idt []byte, expectedCICHash string) error {
+func (g *Google) VerifyCICHash(ctx context.Context, idt []byte, expectedCICHash string) error {
 	cicHash, err := client.ExtractClaim(idt, "nonce")
 	if err != nil {
 		return err
@@ -120,7 +120,7 @@ func (g *GoogleOp) VerifyCICHash(ctx context.Context, idt []byte, expectedCICHas
 	return nil
 }
 
-func (g *GoogleOp) PublicKey(ctx context.Context, idt []byte) (crypto.PublicKey, error) {
+func (g *Google) PublicKey(ctx context.Context, idt []byte) (crypto.PublicKey, error) {
 	j, err := jws.Parse(idt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse JWS: %w", err)
@@ -151,23 +151,21 @@ func (g *GoogleOp) PublicKey(ctx context.Context, idt []byte) (crypto.PublicKey,
 	return pubKey, err
 }
 
-func (g *GoogleOp) VerifyNonGQSig(ctx context.Context, idt []byte, expectedNonce string) error {
-	options := []rp.Option{
-		rp.WithVerifierOpts(rp.WithIssuedAtOffset(5*time.Second), rp.WithNonce(func(ctx context.Context) string { return expectedNonce })),
-	}
-
-	googleRP, err := rp.NewRelyingPartyOIDC(
+func (g *Google) VerifyNonGQSig(ctx context.Context, idt []byte, expectedNonce string) error {
+	relyingParty, err := rp.NewRelyingPartyOIDC(
 		g.Issuer, g.ClientID, g.ClientSecret, g.RedirectURI, g.Scopes,
-		options...)
-
+		rp.WithVerifierOpts(
+			rp.WithIssuedAtOffset(5*time.Second),
+			rp.WithNonce(func(context.Context) string { return expectedNonce }),
+		),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create RP to verify token: %w", err)
 	}
 
-	_, err = rp.VerifyIDToken[*oidc.IDTokenClaims](ctx, string(idt), googleRP.IDTokenVerifier())
+	_, err = rp.VerifyIDToken[*oidc.IDTokenClaims](ctx, string(idt), relyingParty.IDTokenVerifier())
 	if err != nil {
 		return fmt.Errorf("error verifying OP signature on PK Token (ID Token invalid): %w", err)
 	}
-
 	return nil
 }

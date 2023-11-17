@@ -15,11 +15,11 @@ import (
 	"github.com/openpubkey/openpubkey/pktoken/clientinstance"
 )
 
-type OpkClient struct {
-	Op OpenIdProvider
+type Client struct {
+	Provider OpenIdProvider
 }
 
-func (o *OpkClient) OidcAuth(
+func (c *Client) OidcAuth(
 	ctx context.Context,
 	signer crypto.Signer,
 	alg jwa.KeyAlgorithm,
@@ -46,7 +46,7 @@ func (o *OpkClient) OidcAuth(
 	}
 
 	// Use the commitment nonce to complete the OIDC flow and get an ID token from the provider
-	idToken, err := o.Op.RequestTokens(ctx, string(nonce))
+	idToken, err := c.Provider.RequestTokens(ctx, string(nonce))
 	if err != nil {
 		return nil, fmt.Errorf("error requesting ID Token: %w", err)
 	}
@@ -59,7 +59,7 @@ func (o *OpkClient) OidcAuth(
 	}
 
 	if signGQ {
-		opKey, err := o.Op.PublicKey(ctx, idToken.Bytes())
+		opKey, err := c.Provider.PublicKey(ctx, idToken.Bytes())
 		if err != nil {
 			return nil, fmt.Errorf("error getting OP public key: %w", err)
 		}
@@ -79,7 +79,7 @@ func (o *OpkClient) OidcAuth(
 		return nil, fmt.Errorf("error creating PK Token: %w", err)
 	}
 
-	err = VerifyPKToken(ctx, pkt, o.Op)
+	err = VerifyPKToken(ctx, pkt, c.Provider)
 	if err != nil {
 		return nil, fmt.Errorf("error verifying PK Token: %w", err)
 	}

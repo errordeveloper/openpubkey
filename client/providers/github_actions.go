@@ -19,38 +19,33 @@ import (
 	oidcclient "github.com/zitadel/oidc/v2/pkg/client"
 )
 
-const githubIssuer = "https://token.actions.githubusercontent.com"
+const (
+	Issuer = "https://token.actions.githubusercontent.com"
 
-type GithubOp struct {
+	EnvTokenURL = "ACTIONS_ID_TOKEN_REQUEST_URL"
+	EnvToken    = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+)
+
+type GitHubActions struct {
 	rawTokenRequestURL    string
 	tokenRequestAuthToken string
 }
 
-var _ client.OpenIdProvider = (*GithubOp)(nil)
+var _ client.OpenIdProvider = (*GitHubActions)(nil)
 
-func NewGithubOpFromEnvironment() (*GithubOp, error) {
-	tokenURL, err := getEnvVar("ACTIONS_ID_TOKEN_REQUEST_URL")
-	if err != nil {
-		return nil, err
-	}
-	token, err := getEnvVar("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
-	if err != nil {
-		return nil, err
+func NewGitHubActionsFromEnvironment() (*GitHubActions, error) {
+	tokenURL, hasTokenURL := os.LookupEnv(EnvTokenURL)
+	token, hasToken := os.LookupEnv(EnvToken)
+
+	if !hasTokenURL || !hasToken {
+		return nil, fmt.Errorf("missing environment variables %q and/or %q", EnvTokenURL, EnvToken)
 	}
 
-	return NewGithubOp(tokenURL, token), nil
+	return NewGitHubActions(tokenURL, token), nil
 }
 
-func getEnvVar(name string) (string, error) {
-	value, ok := os.LookupEnv(name)
-	if !ok {
-		return "", fmt.Errorf("%q environment variable not set", name)
-	}
-	return value, nil
-}
-
-func NewGithubOp(tokenURL string, token string) *GithubOp {
-	return &GithubOp{
+func NewGitHubActions(tokenURL string, token string) *GitHubActions {
+	return &GitHubActions{
 		rawTokenRequestURL:    tokenURL,
 		tokenRequestAuthToken: token,
 	}
@@ -72,7 +67,7 @@ func buildTokenURL(rawTokenURL, audience string) (string, error) {
 	return parsedURL.String(), nil
 }
 
-func (g *GithubOp) VerifyCICHash(ctx context.Context, idt []byte, expectedCICHash string) error {
+func (g *GitHubActions) VerifyCICHash(ctx context.Context, idt []byte, expectedCICHash string) error {
 	cicHash, err := client.ExtractClaim(idt, "aud")
 	if err != nil {
 		return err
@@ -85,7 +80,7 @@ func (g *GithubOp) VerifyCICHash(ctx context.Context, idt []byte, expectedCICHas
 	return nil
 }
 
-func (g *GithubOp) PublicKey(ctx context.Context, idt []byte) (crypto.PublicKey, error) {
+func (g *GitHubActions) PublicKey(ctx context.Context, idt []byte) (crypto.PublicKey, error) {
 	j, err := jws.Parse(idt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse JWS: %w", err)
@@ -96,12 +91,12 @@ func (g *GithubOp) PublicKey(ctx context.Context, idt []byte) (crypto.PublicKey,
 		return nil, fmt.Errorf("expected RS256 alg claim, got %s", alg)
 	}
 
-	discConf, err := oidcclient.Discover(githubIssuer, http.DefaultClient)
+	discovery, err := oidcclient.Discover(Issuer, http.DefaultClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call OIDC discovery endpoint: %w", err)
 	}
 
-	jwks, err := jwk.Fetch(ctx, discConf.JwksURI)
+	jwks, err := jwk.Fetch(ctx, discovery.JwksURI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch to JWKS: %w", err)
 	}
@@ -124,7 +119,7 @@ func (g *GithubOp) PublicKey(ctx context.Context, idt []byte) (crypto.PublicKey,
 	return pubKey, err
 }
 
-func (g *GithubOp) RequestTokens(ctx context.Context, cicHash string) (*memguard.LockedBuffer, error) {
+func (g *GitHubActions) RequestTokens(ctx context.Context, cicHash string) (*memguard.LockedBuffer, error) {
 	tokenURL, err := buildTokenURL(g.rawTokenRequestURL, cicHash)
 	if err != nil {
 		return nil, err
@@ -162,6 +157,6 @@ func (g *GithubOp) RequestTokens(ctx context.Context, cicHash string) (*memguard
 	return jwt.Value, err
 }
 
-func (*GithubOp) VerifyNonGQSig(context.Context, []byte, string) error {
+func (*GitHubActions) VerifyNonGQSig(context.Context, []byte, string) error {
 	return client.ErrNonGQUnsupported
 }
